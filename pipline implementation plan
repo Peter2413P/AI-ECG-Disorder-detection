@@ -1,0 +1,162 @@
+# ECG Feature Extraction Pipeline Implementation Plan
+
+This implementation plan details the architecture, module design, and execution workflow to transform raw 12-lead ECG signals across multiple datasets into a validated, tabular dataset with ~190 features and 12 target labels.
+
+---
+
+## User Review Required
+> [!IMPORTANT]
+> Please review the proposed folder structure, module definitions, and implementation approach below. Once approved, I will begin generating the Python code files according to this plan.
+
+---
+
+## Proposed Changes
+
+### 1. Project Structure
+The pipeline will be modularized into distinct directories. 
+I will create the following structure under the main working directory:
+
+```text
+CardioVision_Feature_Pipeline/
+│
+├── data/                       # Raw datasets & Metadata
+├── outputs/                    # Final Parquet/CSV datasets & Validation reports
+├── core/
+│   ├── __init__.py
+│   ├── config.py               # Centralized configuration (sampling rates, leads)
+│   ├── logger.py               # Standardized logging
+│
+├── loaders/
+│   ├── __init__.py
+│   ├── base_loader.py          # Abstract base class for loaders
+│   ├── physionet_loader.py     # Handles WFDB/MAT for PTB-XL, Georgia, Chapman
+│
+├── processing/
+│   ├── __init__.py
+│   ├── preprocessor.py         # Baseline, powerline, low-pass, normalization
+│   ├── delineator.py           # P, QRS, T wave onset/offset detection
+│   ├── sqi.py                  # Signal Quality Assessment
+│
+├── features/
+│   ├── __init__.py
+│   ├── extractor.py            # Main feature orchestrator
+│   ├── rhythm.py               # HR, RR, HRV
+│   ├── morphology.py           # P, QRS, T, ST amplitudes/durations
+│   ├── entropy_freq.py         # Sample entropy, Spectral power
+│   ├── pacemaker.py            # Spike detection logic
+│
+├── labeling/
+│   ├── __init__.py
+│   ├── mapper.py               # SNOMED/SCP to 12-class target vector
+│
+└── pipeline/
+    ├── __init__.py
+    ├── orchestrator.py         # Main execution loop across all records
+    ├── validator.py            # Feature validation & missingness checking
+```
+
+---
+
+### 2. Data Loading Implementation
+**File:** `loaders/physionet_loader.py`
+- **Class**: `PhysioNetLoader`
+- **Methods**: `load_record(path)`, `extract_metadata(path)`
+- **Workflow**: Uses `wfdb.rdrecord` for `.dat` and `scipy.io.loadmat` for `.mat`.
+- **Unified Record Format**: Returns a unified Python dictionary:
+  ```python
+  {
+      "ecg_id": "A0001",
+      "patient_id": "P_001",
+      "dataset_source": "Georgia",
+      "signal": np.ndarray, # Shape (12, N_samples)
+      "fs": 500,
+      "labels": ["164889003", "426783006"]
+  }
+  ```
+
+---
+
+### 3. Preprocessing Implementation
+**File:** `processing/preprocessor.py`
+- **Class**: `ECGPreprocessor`
+- **Methods**:
+  - `remove_baseline_wander()`: High-pass Butterworth filter (0.5 Hz) using SciPy.
+  - `remove_powerline()`: Notch filter (50Hz/60Hz) using SciPy.
+  - `low_pass_filter()`: Low-pass filter (40Hz) for EMG noise.
+  - `normalize_signal()`: Z-score standard normalization per lead.
+  - `assess_quality()`: Wraps `nk.ecg_quality()` to drop garbage ECGs (SQI < 0.5).
+
+---
+
+### 4. ECG Delineation Implementation
+**File:** `processing/delineator.py`
+- **Class**: `ECGDelineator`
+- **Methods**: `delineate_lead(signal_1d, fs)`
+- **Workflow**: 
+  - First runs `nk.ecg_peaks()` (Pan-Tompkins) to find R-peaks.
+  - Runs `nk.ecg_delineate(method='dwt')` to find P/QRS/T boundaries.
+  - Returns structured dictionary containing indices of all waves for a given lead.
+
+---
+
+### 5. Feature Extraction Implementation
+**Files:** `features/rhythm.py`, `features/morphology.py`, `features/entropy_freq.py`
+- **Architecture**: A master `FeatureExtractor` class that iterates over all 12 leads, calling sub-modules.
+- **Rhythm**: Computes global `HR`, `RR_mean`, `RR_std`, `RMSSD`, `pNN50`.
+- **Morphology (Conduction, P, QRS, ST, T, Axis)**: 
+  - Computes `PR_interval`, `QRS_duration`, `QTc`.
+  - Calculates Area using `np.trapz()` on delineated boundaries.
+  - Finds Max/Min within boundaries for Amplitudes.
+  - Calculates QRS Axis using arctan of Lead I and aVF net amplitudes.
+- **Entropy/Freq**: Wraps `nk.entropy_sample()` and `scipy.signal.welch()` for dominant frequency.
+
+---
+
+### 6. Pacemaker Feature Module
+**File:** `features/pacemaker.py`
+- **Methods**: `detect_pacemaker_spikes(raw_signal, fs)`
+- **Workflow**:
+  - MUST be executed on the *raw* signal before low-pass filtering.
+  - Runs a high-pass filter (>15 Hz) and a derivative to detect vertical, instantaneous spikes.
+  - Extracts `spike_count`, `spike_amplitude`, `spike_width`, `spike_to_qrs_delay`.
+
+---
+
+### 7. Feature Validation Module
+**File:** `pipeline/validator.py`
+- **Class**: `FeatureValidator`
+- **Workflow**: After extraction, parses the generated Pandas DataFrame.
+- **Output**: Generates `outputs/feature_validation_report.csv` containing:
+  - Feature Name, Mean, Std, Min, Max, Missing %, Outlier Count (using IQR method).
+- **Flagging**: Automatically flags features with >15% missingness.
+
+---
+
+### 8. Label Mapping Implementation
+**File:** `labeling/mapper.py`
+- **Class**: `LabelMapper`
+- **Workflow**: 
+  - Maintains a constant JSON/dict mapping SNOMED-CT codes to the 12 target classes.
+  - Outputs a binary list: `[1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]` (e.g., NSR + PAC).
+
+---
+
+### 9. Dataset Generation
+**File:** `pipeline/orchestrator.py`
+- **Workflow**:
+  1. Loops through metadata index (`ecg_filtered_dataset.csv`).
+  2. Runs Load → Preprocess → Delineate → Extract Features → Map Labels.
+  3. Appends dict to a list, converts to Pandas DataFrame.
+- **Storage**: Saves `outputs/dataset.parquet` (highly recommended for speed/compression) and `outputs/dataset.csv`.
+
+---
+
+### 10. Output Validation
+- **Action**: Run a final sanity check script that prints class balances, total feature count (~190 + 12 labels), and verifies no data leakage (Patient IDs are unique per fold split).
+
+---
+
+## Verification Plan
+1. **Automated Validation**: Run the `pipeline/validator.py` on a subset of 100 records to confirm all 190 features compute without throwing exceptions.
+2. **Missingness Check**: Verify the `feature_validation_report.csv` shows acceptable missing rates.
+3. **Manual Verification**: We will ask you to verify the output parquet schema (`df.info()`) to ensure the final dataset has the expected dimensionality.

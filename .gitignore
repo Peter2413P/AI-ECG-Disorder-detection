@@ -1,0 +1,34 @@
+# Datasets
+chapman/
+georgia/
+physionet/
+ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.1/
+
+# Outputs
+outputs/
+training_outputs/
+uploads/
+
+# Data files
+*.csv
+*.xlsx
+*.parquet
+
+# Models
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+
+# Environment
+venv/
+.venv/
+.env
+
+# IDE
+.vscode/
