@@ -162,10 +162,11 @@ This will print the positive disorder predictions, their probabilities against t
 We have wrapped the pipeline into a complete, locally-hosted **Explainable AI Platform** featuring a **Phi3 RAG** integration!
 
 ### Prerequisites
-1. You must have [Ollama](https://ollama.com/) installed.
-2. Run `ollama pull phi3` in your terminal to download the language model.
-3. Node.js must be installed to run the React frontend.
-4. Install all Python dependencies by running:
+1. **Python 3.10 - 3.12** is required (Python 3.12 is recommended).
+2. **Node.js v18+** must be installed to run the React frontend.
+3. You must have [Ollama](https://ollama.com/) installed.
+4. Run `ollama pull phi3` in your terminal to download the language model.
+5. Install all Python dependencies by running:
 ```bash
 pip install -r requirements.txt
 ```

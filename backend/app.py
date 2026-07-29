@@ -155,7 +155,9 @@ def run_prediction(req: PredictionRequest):
                 patient_idx = df.sample(1).index[0]
                 features = df.loc[patient_idx].to_dict()
         except Exception as e:
-            raise HTTPException(status_code=500, detail="Failed to run feature extraction on raw file.")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Failed to run feature extraction on raw file. Error: {e}")
 
     # 3. Run Inference
     try:

@@ -165,7 +165,7 @@ function App() {
     <div className="max-w-[1600px] mx-auto p-4 md:p-8 flex flex-col gap-8">
       <header className="flex justify-between items-center pb-6 border-b border-white/10">
         <div className="text-3xl font-display font-semibold bg-gradient-to-br from-white to-indigo-300 bg-clip-text text-transparent flex items-center gap-3">
-          <Activity size={36} className="text-green-400" />
+          <img src="/logo.png" alt="KORAK Logo" className="h-10" />
           CardioVision <span className="font-light text-slate-400">Clinical AI</span>
         </div>
         <div className="flex gap-4">

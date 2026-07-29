@@ -32,3 +32,6 @@ venv/
 
 # IDE
 .vscode/
+
+# Generated Figures
+figures/
