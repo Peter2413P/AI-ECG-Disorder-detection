@@ -73,10 +73,16 @@ class PredictionRequest(BaseModel):
 
 from backend.inference.parser import ECGParser
 from backend.inference.delineator import ECGDelineatorWrapper
+from core.config import LEAD_NAMES
+from processing.delineator import ECGDelineator
+from features.extractor import FeatureExtractor
+import numpy as np
 
 # Initialize new clinical tools
 parser = ECGParser()
-delineator = ECGDelineatorWrapper()
+delineator_ui = ECGDelineatorWrapper()
+delineator_pipeline = ECGDelineator()
+extractor = FeatureExtractor()
 
 @app.post("/predict")
 def run_prediction(req: PredictionRequest):
@@ -102,7 +108,7 @@ def run_prediction(req: PredictionRequest):
         # Delineate Lead II for the frontend UI highlighting
         lead_ii_signal = raw_signals.get('II', [])
         if lead_ii_signal:
-            delineation = delineator.delineate(lead_ii_signal, fs)
+            delineation = delineator_ui.delineate(lead_ii_signal, fs)
     except Exception as e:
         print(f"Waveform processing failed: {e}. Attempting local fallback...")
         try:
@@ -121,7 +127,7 @@ def run_prediction(req: PredictionRequest):
                 fs = parsed_data['fs']
                 lead_ii_signal = raw_signals.get('II', [])
                 if lead_ii_signal:
-                    delineation = delineator.delineate(lead_ii_signal, fs)
+                    delineation = delineator_ui.delineate(lead_ii_signal, fs)
             else:
                 raise FileNotFoundError()
         except Exception as fallback_err:
@@ -137,23 +143,29 @@ def run_prediction(req: PredictionRequest):
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse CSV features: {e}")
     else:
-        # Fallback to dataset lookup for instant ML inference
-        dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'CardioVision_Feature_Pipeline', 'outputs', 'final_dataset', 'dataset.parquet'))
+        # Actually extract features from the raw file!
         try:
-            df = pd.read_parquet(dataset_path)
-            # Try to match patient ID from filename
-            if 'patient_id' in df.columns:
-                # Use substring matching to handle 'ptbxl_10241.0' or 'chapman_JS00009'
-                match = df[df['patient_id'].astype(str).str.contains(patient_id_guess, na=False)]
-                if not match.empty:
-                    features = match.iloc[0].to_dict()
-                    print(f"Matched record #{patient_id_guess} to {match.iloc[0]['patient_id']}")
-                else:
-                    patient_idx = df.sample(1).index[0]
-                    features = df.loc[patient_idx].to_dict()
-            else:
-                patient_idx = df.sample(1).index[0]
-                features = df.loc[patient_idx].to_dict()
+            # 1. Format signal matrix for pipeline
+            signal_array = []
+            for lead in LEAD_NAMES:
+                signal_array.append(raw_signals.get(lead, []))
+            signal_array = np.array(signal_array)
+            
+            ecg_record = {
+                'signal': signal_array,
+                'cleaned_signal': signal_array,
+                'fs': fs
+            }
+            
+            # 2. Perform deep delineation across all 12 leads
+            delineator_pipeline.delineate_record(ecg_record)
+            
+            # 3. Extract the full 234 feature set
+            features = extractor.extract_features(ecg_record)
+            
+            # 4. Sanitize NaN for JSON serialization
+            features = {k: (0.0 if pd.isna(v) else v) for k, v in features.items()}
+            
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -207,18 +219,27 @@ async def debug_predict(req: PredictionRequest):
         df = pd.read_csv(req.filepath)
         features = df.iloc[0].to_dict()
     else:
-        dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'CardioVision_Feature_Pipeline', 'outputs', 'final_dataset', 'dataset.parquet'))
-        df = pd.read_parquet(dataset_path)
-        if 'patient_id' in df.columns:
-            match = df[df['patient_id'].astype(str).str.contains(patient_id_guess, na=False)]
-            if not match.empty:
-                features = match.iloc[0].to_dict()
-            else:
-                patient_idx = df.sample(1).index[0]
-                features = df.loc[patient_idx].to_dict()
-        else:
-            patient_idx = df.sample(1).index[0]
-            features = df.loc[patient_idx].to_dict()
+        # Actually extract features from the raw file for debug!
+        try:
+            parsed_data = parser.parse(req.filepath)
+            raw_signals = parsed_data['signals']
+            fs = parsed_data['fs']
+            
+            signal_array = []
+            for lead in LEAD_NAMES:
+                signal_array.append(raw_signals.get(lead, []))
+            signal_array = np.array(signal_array)
+            
+            ecg_record = {
+                'signal': signal_array,
+                'cleaned_signal': signal_array,
+                'fs': fs
+            }
+            delineator_pipeline.delineate_record(ecg_record)
+            features = extractor.extract_features(ecg_record)
+            features = {k: (0.0 if pd.isna(v) else v) for k, v in features.items()}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Debug Feature Extraction Failed: {e}")
             
     # Run Inference
     results = predictor.predict(features)

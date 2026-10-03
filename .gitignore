@@ -35,3 +35,9 @@ venv/
 
 # Generated Figures
 figures/
+Extracted/
+Extracted_ECG_Disorders/
+extracted_ecg_disorders/
+Extracted_ECG_Disorders_Full/
+Final_Predicted_Dataset/
+Predicted_PTBXL_Dataset/

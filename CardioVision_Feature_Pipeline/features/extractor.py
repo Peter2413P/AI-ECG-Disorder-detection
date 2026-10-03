@@ -24,7 +24,7 @@ class FeatureExtractor:
         
         # 1. Global Features (Using Lead II usually index 1)
         lead_ii_idx = LEAD_NAMES.index('II') if 'II' in LEAD_NAMES else 0
-        lead_ii_delin = delineations.get(f"Lead_{lead_ii_idx}", {})
+        lead_ii_delin = delineations.get(f"Lead_{lead_ii_idx}") or {}
         
         # Rhythm
         rhythm_feats = extract_rhythm_features(lead_ii_delin.get('R_Peaks'), fs)
@@ -46,7 +46,7 @@ class FeatureExtractor:
 
         # 2. Lead-Specific Features
         for i, lead in enumerate(LEAD_NAMES):
-            lead_delin = delineations.get(f"Lead_{i}", {})
+            lead_delin = delineations.get(f"Lead_{i}") or {}
             morph_feats = extract_morphology_features(cleaned_signal[i], lead_delin, fs)
             
             for k, v in morph_feats.items():
